@@ -1,0 +1,81 @@
+services:
+  spark-master:
+    image: apache/spark:3.5.1
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+      - "8080:8080" # Master Web UI
+      - "7077:7077" # Master Port
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      # Bind service to run in foreground in Docker container
+      - SPARK_NO_DAEMONIZE=true
+    networks:
+      - spark-network
+    # Command to start Spark Master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    environment:
+      # Connect Worker to Master using the address defined above
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      # Configure resources for Worker
+      - SPARK_WORKER_CORES=4
+      - SPARK_WORKER_MEMORY=4g
+      - SPARK_NO_DAEMONIZE=true
+    # Ensure worker starts only after master is ready
+    depends_on:
+      - spark-master
+    networks:
+      - spark-network
+    # Command to start Spark Worker
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+
+  spark-history-server:
+    image: apache/spark:3.5.1
+    container_name: spark-history-server
+    ports:
+      - "18080:18080" # History Server Web UI
+    environment:
+      - SPARK_NO_DAEMONIZE=true
+      # Cấu hình đọc log từ thư mục chung
+      - SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=file:///tmp/spark-events
+    volumes:
+      - spark-events:/tmp/spark-events
+    networks:
+      - spark-network
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer
+
+# Spark Driver (to run spark-submit)
+  spark-driver:
+    image: apache/spark:3.5.1
+    container_name: spark-driver
+    hostname: spark-driver
+    ports:
+      - "4040:4040" # Web UI for Driver
+    environment:
+      # Ensure driver can find master
+      - SPARK_MASTER=spark://spark-master:7077
+      # Deploy mode
+      - SPARK_DEPLOY_MODE=client
+      - SPARK_DRIVER_HOST=spark-driver
+    volumes:
+      - ./src/:/app
+      - spark-events:/tmp/spark-events #
+      - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+    working_dir: /app
+    depends_on:
+      - spark-master
+    networks:
+      - spark-network
+    # Keep the container running with "sleep infinity" to prevent it from exiting.
+    command: sleep infinity
+
+volumes:
+  spark-events:
+
+networks:
+  spark-network:
+    driver: bridge
